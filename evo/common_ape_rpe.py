@@ -144,9 +144,7 @@ def plot_result(args: argparse.Namespace, result: Result, traj_ref: PosePath3D,
 
     # Plot the values color-mapped onto the trajectory.
     fig2 = plt.figure(figsize=SETTINGS.plot_figsize)
-    ax = plot.prepare_axis(
-        fig2, plot_mode,
-        length_unit=Unit(SETTINGS.plot_trajectory_length_unit))
+    ax = plot.prepare_axis(fig2, plot_mode)
 
     plot.traj(ax, plot_mode, traj_ref_full if traj_ref_full else traj_ref,
               style=SETTINGS.plot_reference_linestyle,

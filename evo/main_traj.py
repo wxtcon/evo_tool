@@ -324,7 +324,7 @@ def run(args):
 
     import evo.core.lie_algebra as lie
     from evo.core import trajectory
-    from evo.core.metrics import Unit
+    from evo.core.trajectory import PoseTrajectory3D
     from evo.tools import file_interface, log
 
     log.configure_logging(verbose=args.verbose, silent=args.silent,
@@ -415,6 +415,8 @@ def run(args):
         print_traj_info(to_compact_name(args.ref, args), ref_traj,
                         args.verbose, args.full_check)
 
+    
+    # 修改自此开始
     if args.plot or args.save_plot or args.serialize_plot:
         import numpy as np
         from evo.tools import plot
@@ -429,9 +431,7 @@ def run(args):
         fig_traj = plt.figure(figsize=tuple(SETTINGS.plot_figsize))
 
         plot_mode = plot.PlotMode[args.plot_mode]
-        length_unit = Unit(SETTINGS.plot_trajectory_length_unit)
-        ax_traj = plot.prepare_axis(fig_traj, plot_mode,
-                                    length_unit=length_unit)
+        ax_traj = plot.prepare_axis(fig_traj, plot_mode)
 
         # for x-axis alignment starting from 0 with --plot_relative_time
         start_time = None
@@ -440,7 +440,7 @@ def run(args):
             if isinstance(ref_traj, trajectory.PoseTrajectory3D) \
                     and args.plot_relative_time:
                 start_time = ref_traj.timestamps[0]
-
+            myref_traj = ref_traj # 提取参考曲线
             short_traj_name = to_compact_name(
                 args.ref, args, SETTINGS.plot_usetex)
             plot.traj(ax_traj, plot_mode, ref_traj,
@@ -455,7 +455,7 @@ def run(args):
                 axarr_xyz, ref_traj, style=SETTINGS.plot_reference_linestyle,
                 color=SETTINGS.plot_reference_color, label=short_traj_name,
                 alpha=SETTINGS.plot_reference_alpha,
-                start_timestamp=start_time, length_unit=length_unit)
+                start_timestamp=start_time)
             plot.traj_rpy(
                 axarr_rpy, ref_traj, style=SETTINGS.plot_reference_linestyle,
                 color=SETTINGS.plot_reference_color, label=short_traj_name,
@@ -470,12 +470,26 @@ def run(args):
             start_time = min(traj.timestamps[0]
                              for _, traj in trajectories.items())
 
+        
         cmap_colors = None
         if SETTINGS.plot_multi_cmap.lower() != "none":
             cmap = getattr(cm, SETTINGS.plot_multi_cmap)
             cmap_colors = iter(cmap(np.linspace(0, 1, len(trajectories))))
 
+        object_num = 0
+        
         for name, traj in trajectories.items():
+            object_num = object_num + 1
+            
+            if args.ref: # 如果已经指定了ref
+                my_traj = traj
+            else:
+                if object_num == 1:
+                    myref_traj = traj   # 如果未指定了ref，则取第一个为ref
+                else:
+                    my_traj = traj
+            
+
             if cmap_colors is None:
                 color = next(ax_traj._get_lines.prop_cycler)['color']
             else:
@@ -496,14 +510,17 @@ def run(args):
             plot.traj_xyz(axarr_xyz, traj, SETTINGS.plot_trajectory_linestyle,
                           color, short_traj_name,
                           alpha=SETTINGS.plot_trajectory_alpha,
-                          start_timestamp=start_time, length_unit=length_unit)
+                          start_timestamp=start_time)
             plot.traj_rpy(axarr_rpy, traj, SETTINGS.plot_trajectory_linestyle,
                           color, short_traj_name,
                           alpha=SETTINGS.plot_trajectory_alpha,
                           start_timestamp=start_time)
+                          
             if not SETTINGS.plot_usetex:
                 fig_rpy.text(0., 0.005, "euler_angle_sequence: {}".format(
                     SETTINGS.euler_angle_sequence), fontsize=6)
+        
+        print("\n[Test_info] " + str(object_num)+" packets have been received!")
 
         if args.ros_map_yaml:
             plot.ros_map(ax_traj, args.ros_map_yaml, plot_mode)
@@ -511,8 +528,42 @@ def run(args):
         plot_collection.add_figure("trajectories", fig_traj)
         plot_collection.add_figure("xyz_view", fig_xyz)
         plot_collection.add_figure("rpy_view", fig_rpy)
+
+        # 添加误差曲线
+        if (object_num >= 2) or (object_num >= 1 and args.ref):
+            fig_xyz_e, axarr_xyz_e = plt.subplots(3, sharex="col", figsize=tuple(
+            SETTINGS.plot_figsize)) # xyz误差
+            fig_rpy_e, axarr_rpy_e = plt.subplots(3, sharex="col", figsize=tuple(
+            SETTINGS.plot_figsize)) # rpy误差
+            fig_xyz_abs_e, axarr_xyz_abs_e = plt.subplots(3, sharex="col", figsize=tuple(
+            SETTINGS.plot_figsize)) # xyz误差绝对值
+            fig_rpy_abs_e, axarr_rpy_abs_e = plt.subplots(3, sharex="col", figsize=tuple(
+            SETTINGS.plot_figsize)) # rpy误差绝对值
+
+            plot.traj_xyz_e(axarr_xyz_e, myref_traj, my_traj, SETTINGS.plot_trajectory_linestyle,
+                            color, short_traj_name,
+                            alpha=SETTINGS.plot_trajectory_alpha,
+                            start_timestamp=start_time)
+            plot.traj_rpy_e(axarr_rpy_e, myref_traj, my_traj, SETTINGS.plot_trajectory_linestyle,
+                            color, short_traj_name,
+                            alpha=SETTINGS.plot_trajectory_alpha,
+                            start_timestamp=start_time)
+            plot.traj_xyz_abs_e(axarr_xyz_abs_e, myref_traj, my_traj, SETTINGS.plot_trajectory_linestyle,
+                            color, short_traj_name,
+                            alpha=SETTINGS.plot_trajectory_alpha,
+                            start_timestamp=start_time)
+            plot.traj_rpy_abs_e(axarr_rpy_abs_e, myref_traj, my_traj, SETTINGS.plot_trajectory_linestyle,
+                            color, short_traj_name,
+                            alpha=SETTINGS.plot_trajectory_alpha,
+                            start_timestamp=start_time)
+            plot_collection.add_figure("Error of xyz_view", fig_xyz_e) #
+            plot_collection.add_figure("Error of rpy_view", fig_rpy_e) #
+            plot_collection.add_figure("Abs error of xyz_view", fig_xyz_abs_e) #
+            plot_collection.add_figure("Abs error of rpy_view", fig_rpy_abs_e) #
+       
         if args.plot:
             plot_collection.show()
+            print('测试')
         if args.save_plot:
             logger.info(SEP)
             plot_collection.export(args.save_plot,

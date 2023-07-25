@@ -46,7 +46,6 @@ import seaborn as sns
 from evo import EvoException
 from evo.tools import user
 from evo.core import trajectory
-from evo.core.metrics import Unit, LENGTH_UNITS, METER_SCALE_FACTORS
 
 # configure matplotlib and seaborn according to package settings
 # TODO: 'color_codes=False' to work around this bug:
@@ -256,62 +255,41 @@ def set_aspect_equal(ax: plt.Axes) -> None:
     ax.set_zlim3d([zmean - plot_radius, zmean + plot_radius])
 
 
-def _get_length_formatter(length_unit: Unit) -> typing.Callable:
-    def formatter(x, _):
-        return "{0:g}".format(x / METER_SCALE_FACTORS[length_unit])
-
-    return formatter
-
-
 def prepare_axis(fig: plt.Figure, plot_mode: PlotMode = PlotMode.xy,
-                 subplot_arg: int = 111,
-                 length_unit: Unit = Unit.meters) -> plt.Axes:
+                 subplot_arg: int = 111) -> plt.Axes:
     """
     prepares an axis according to the plot mode (for trajectory plotting)
     :param fig: matplotlib figure object
     :param plot_mode: PlotMode
     :param subplot_arg: optional if using subplots - the subplot id (e.g. '122')
-    :param length_unit: Set to another length unit than meters to scale plots.
-                        Note that trajectory data is still expected in meters.
     :return: the matplotlib axis
     """
-    if length_unit not in LENGTH_UNITS:
-        raise PlotException(f"{length_unit} is not a length unit")
-
     if plot_mode == PlotMode.xyz:
         ax = fig.add_subplot(subplot_arg, projection="3d")
     else:
         ax = fig.add_subplot(subplot_arg)
     if plot_mode in {PlotMode.xy, PlotMode.xz, PlotMode.xyz}:
-        xlabel = f"$x$ ({length_unit.value})"
+        xlabel = "$x$ (m)"
     elif plot_mode in {PlotMode.yz, PlotMode.yx}:
-        xlabel = f"$y$ ({length_unit.value})"
+        xlabel = "$y$ (m)"
     else:
-        xlabel = f"$z$ ({length_unit.value})"
+        xlabel = "$z$ (m)"
     if plot_mode in {PlotMode.xy, PlotMode.zy, PlotMode.xyz}:
-        ylabel = f"$y$ ({length_unit.value})"
+        ylabel = "$y$ (m)"
     elif plot_mode in {PlotMode.zx, PlotMode.yx}:
-        ylabel = f"$x$ ({length_unit.value})"
+        ylabel = "$x$ (m)"
     else:
-        ylabel = f"$z$ ({length_unit.value})"
+        ylabel = "$z$ (m)"
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if plot_mode == PlotMode.xyz:
-        ax.set_zlabel(f'$z$ ({length_unit.value})')
+        ax.set_zlabel('$z$ (m)')
     if SETTINGS.plot_invert_xaxis:
         plt.gca().invert_xaxis()
     if SETTINGS.plot_invert_yaxis:
         plt.gca().invert_yaxis()
     if not SETTINGS.plot_show_axis:
         ax.set_axis_off()
-
-    if length_unit is not Unit.meters:
-        formatter = _get_length_formatter(length_unit)
-        ax.xaxis.set_major_formatter(formatter)
-        ax.yaxis.set_major_formatter(formatter)
-        if plot_mode == PlotMode.xyz:
-            ax.zaxis.set_major_formatter(formatter)
-
     return ax
 
 
@@ -543,8 +521,7 @@ def draw_correspondence_edges(ax: plt.Axes, traj_1: trajectory.PosePath3D,
 
 def traj_xyz(axarr: np.ndarray, traj: trajectory.PosePath3D, style: str = '-',
              color: str = 'black', label: str = "", alpha: float = 1.0,
-             start_timestamp: typing.Optional[float] = None,
-             length_unit: Unit = Unit.meters) -> None:
+             start_timestamp: typing.Optional[float] = None) -> None:
     """
     plot a path/trajectory based on xyz coordinates into an axis
     :param axarr: an axis array (for x, y & z)
@@ -556,15 +533,10 @@ def traj_xyz(axarr: np.ndarray, traj: trajectory.PosePath3D, style: str = '-',
     :param alpha: alpha value for transparency
     :param start_timestamp: optional start time of the reference
                             (for x-axis alignment)
-    :param length_unit: Set to another length unit than meters to scale plots.
-                        Note that trajectory data is still expected in meters.
     """
     if len(axarr) != 3:
         raise PlotException("expected an axis array with 3 subplots - got " +
                             str(len(axarr)))
-    if length_unit not in LENGTH_UNITS:
-        raise PlotException(f"{length_unit} is not a length unit")
-
     if isinstance(traj, trajectory.PoseTrajectory3D):
         if start_timestamp:
             x = traj.timestamps - start_timestamp
@@ -574,14 +546,8 @@ def traj_xyz(axarr: np.ndarray, traj: trajectory.PosePath3D, style: str = '-',
     else:
         x = np.arange(0., len(traj.positions_xyz))
         xlabel = "index"
-    ylabels = [
-        f"$x$ ({length_unit.value})", f"$y$ ({length_unit.value})",
-        f"$z$ ({length_unit.value})"
-    ]
+    ylabels = ["$x$ (m)", "$y$ (m)", "$z$ (m)"]
     for i in range(0, 3):
-        if length_unit is not Unit.meters:
-            formatter = _get_length_formatter(length_unit)
-            axarr[i].yaxis.set_major_formatter(formatter)
         axarr[i].plot(x, traj.positions_xyz[:, i], style, color=color,
                       label=label, alpha=alpha)
         axarr[i].set_ylabel(ylabels[i])
@@ -627,13 +593,337 @@ def traj_rpy(axarr: np.ndarray, traj: trajectory.PosePath3D, style: str = '-',
     if label:
         axarr[0].legend(frameon=True)
 
+# 新增绘制xyz误差的函数
+def traj_xyz_e(axarr: np.ndarray, traj: trajectory.PosePath3D, mytraj: trajectory.PosePath3D, style: str = '-',
+             color: str = 'black', label: str = "", alpha: float = 1.0,
+             start_timestamp: typing.Optional[float] = None) -> None:
+    """
+    plot a path/trajectory based on xyz coordinates into an axis
+    :param axarr: an axis array (for x, y & z)
+                  e.g. from 'fig, axarr = plt.subplots(3)'
+    :param traj: trajectory.PosePath3D or trajectory.PoseTrajectory3D object
+    :param style: matplotlib line style
+    :param color: matplotlib color
+    :param label: label (for legend)
+    :param alpha: alpha value for transparency
+    :param start_timestamp: optional start time of the reference
+                            (for x-axis alignment)
+    """
+    from scipy.interpolate import interp1d
+    
+    if len(axarr) != 3:
+        raise PlotException("expected an axis array with 3 subplots - got " +
+                            str(len(axarr)))
+    if isinstance(traj, trajectory.PoseTrajectory3D):
+        if start_timestamp:
+            x = mytraj.timestamps - start_timestamp
+        else:
+            x = mytraj.timestamps
+        xlabel = "$t$ (s)"
+    else:
+        x = np.arange(0., len(mytraj.positions_xyz))
+        xlabel = "index"
+    ylabels = ["$x-error$ (m)", "$y-error$ (m)", "$z-error$ (m)"]
+
+    # 确定插值区间    
+    if traj.timestamps[0] <= mytraj.timestamps[0]:
+        t_start = traj.timestamps[0]
+    else:
+        t_start = mytraj.timestamps[0]
+    
+    if traj.timestamps[-1] <= mytraj.timestamps[-1]:
+        t_end = traj.timestamps[-1]
+    else:
+        t_end = mytraj.timestamps[-1]
+
+    # 对GT进行三次样条插值
+    interp_func_x = interp1d(traj.timestamps, traj.positions_xyz[:, 0], kind='cubic')
+    interp_func_y = interp1d(traj.timestamps, traj.positions_xyz[:, 1], kind='cubic')
+    interp_func_z = interp1d(traj.timestamps, traj.positions_xyz[:, 2], kind='cubic')
+
+    
+    # 修改误差曲线的起止范围
+    cnt_start = 0
+    cnt_end = len(x)-1
+    while x[cnt_start] < t_start:
+        cnt_start = cnt_start + 1
+    while x[cnt_end] > t_end:
+        cnt_end = cnt_end - 1
+
+    interp_x = interp_func_x(x[cnt_start:cnt_end])
+    interp_y = interp_func_y(x[cnt_start:cnt_end])
+    interp_z = interp_func_z(x[cnt_start:cnt_end])
+    
+    # print("参考曲线：["+str(traj.timestamps[0])+','+str(traj.timestamps[-1])+']')
+    # print("我的曲线：["+str(mytraj.timestamps[0])+','+str(mytraj.timestamps[-1])+']')
+    
+    # print(len(traj.timestamps))
+    # print(len(mytraj.timestamps))
+    # print(len(x[1:-1]))
+
+    # print(x[0],traj.timestamps[0])
+    
+    
+    # if mytraj.timestamps[0] - traj.timestamps[0] > 0.1: # 如果参考轨迹时间超前0.1s
+    #     cnt = 1
+    #     while traj.timestamps[cnt] - mytraj.timestamps[0] > 0.1:
+    #         print("cnt=",str(cnt))
+    #         pass
+    # print(str(traj.timestamps[0] - mytraj.timestamps[0]))
+    # print(str(traj.timestamps[0]))
+
+    axarr[0].plot(x[cnt_start:cnt_end], mytraj.positions_xyz[cnt_start:cnt_end, 0] - interp_x, style, color=color, label=label, alpha=alpha)
+    axarr[1].plot(x[cnt_start:cnt_end], mytraj.positions_xyz[cnt_start:cnt_end, 1] - interp_y, style, color=color, label=label, alpha=alpha)
+    axarr[2].plot(x[cnt_start:cnt_end], mytraj.positions_xyz[cnt_start:cnt_end, 2] - interp_z, style, color=color, label=label, alpha=alpha)
+    axarr[0].set_ylabel(ylabels[0])
+    axarr[1].set_ylabel(ylabels[1])
+    axarr[2].set_ylabel(ylabels[2])
+    
+    
+    # for i in range(0, 3):
+    #     # axarr[i].plot(x, mytraj.positions_xyz[:, i]-traj.positions_xyz[:, i], style, color=color,
+    #     #               label=label, alpha=alpha)
+    #     axarr[i].plot(x, traj.positions_xyz[:, i], style, color=color,
+    #                   label=label, alpha=alpha)
+    #     axarr[i].set_ylabel(ylabels[i])
+    axarr[2].set_xlabel(xlabel)
+    if label:
+        axarr[0].legend(frameon=True)
+
+# 新增绘制rpy误差的函数
+def traj_rpy_e(axarr: np.ndarray, traj: trajectory.PosePath3D, mytraj: trajectory.PosePath3D, style: str = '-',
+             color: str = 'black', label: str = "", alpha: float = 1.0,
+             start_timestamp: typing.Optional[float] = None) -> None:
+    """
+    plot a error path/trajectory's Euler RPY angles into an axis
+    :param axarr: an axis array (for R, P & Y)
+                  e.g. from 'fig, axarr = plt.subplots(3)'
+    :param traj: trajectory.PosePath3D or trajectory.PoseTrajectory3D object
+    :param style: matplotlib line style
+    :param color: matplotlib color
+    :param label: label (for legend)
+    :param alpha: alpha value for transparency
+    :param start_timestamp: optional start time of the reference
+                            (for x-axis alignment)
+    """
+    from scipy.interpolate import interp1d
+    
+    if len(axarr) != 3:
+        raise PlotException("expected an axis array with 3 subplots - got " +
+                            str(len(axarr)))
+    angles = np.rad2deg(traj.get_orientations_euler(SETTINGS.euler_angle_sequence))
+    my_angles = np.rad2deg(mytraj.get_orientations_euler(SETTINGS.euler_angle_sequence))
+    if isinstance(traj, trajectory.PoseTrajectory3D):
+        if start_timestamp:
+            x = mytraj.timestamps - start_timestamp
+        else:
+            x = mytraj.timestamps
+        xlabel = "$t$ (s)"
+    else:
+        x = np.arange(0., len(angles))
+        xlabel = "index"
+    ylabels = ["$roll-error$ (deg)", "$pitch-error$ (deg)", "$yaw-error$ (deg)"]
+    
+    
+    # 确定插值区间    
+    if traj.timestamps[0] <= mytraj.timestamps[0]:
+        t_start = traj.timestamps[0]
+    else:
+        t_start = mytraj.timestamps[0]
+    
+    if traj.timestamps[-1] <= mytraj.timestamps[-1]:
+        t_end = traj.timestamps[-1]
+    else:
+        t_end = mytraj.timestamps[-1]
+
+    # 对GT进行三次样条插值
+    interp_func_roll = interp1d(traj.timestamps, angles[:, 0], kind='cubic')
+    interp_func_pitch = interp1d(traj.timestamps, angles[:, 1], kind='cubic')
+    interp_func_yaw = interp1d(traj.timestamps, angles[:, 2], kind='cubic')
+
+    
+    # 修改误差曲线的起止范围
+    cnt_start = 0
+    cnt_end = len(x)-1
+    while x[cnt_start] < t_start:
+        cnt_start = cnt_start + 1
+    while x[cnt_end] > t_end:
+        cnt_end = cnt_end - 1
+
+    interp_roll = interp_func_roll(x[cnt_start:cnt_end])
+    interp_pitch = interp_func_pitch(x[cnt_start:cnt_end])
+    interp_yaw = interp_func_yaw(x[cnt_start:cnt_end])
+    
+    axarr[0].plot(x[cnt_start:cnt_end], (my_angles[cnt_start:cnt_end, 0] - interp_roll), style, color=color, label=label, alpha=alpha)
+    axarr[1].plot(x[cnt_start:cnt_end], (my_angles[cnt_start:cnt_end, 1] - interp_pitch), style, color=color, label=label, alpha=alpha)
+    axarr[2].plot(x[cnt_start:cnt_end], (my_angles[cnt_start:cnt_end, 2] - interp_yaw), style, color=color, label=label, alpha=alpha)
+    axarr[0].set_ylabel(ylabels[0])
+    axarr[1].set_ylabel(ylabels[1])
+    axarr[2].set_ylabel(ylabels[2])    
+    # for i in range(0, 3):
+    #     # axarr[i].plot(x, np.rad2deg(my_angles[:, i] - angles[:, i]), style, color=color,
+    #     #               label=label, alpha=alpha)
+    #     axarr[i].plot(x, np.rad2deg(angles[:, i]), style, color=color,
+    #     label=label, alpha=alpha)
+    #     axarr[i].set_ylabel(ylabels[i])
+    axarr[2].set_xlabel(xlabel)
+    if label:
+        axarr[0].legend(frameon=True)
+
+
+# 新增绘制xyz绝对误差的函数
+def traj_xyz_abs_e(axarr: np.ndarray, traj: trajectory.PosePath3D, mytraj: trajectory.PosePath3D, style: str = '-',
+             color: str = 'black', label: str = "", alpha: float = 1.0,
+             start_timestamp: typing.Optional[float] = None) -> None:
+    """
+    plot a path/trajectory based on xyz coordinates into an axis
+    :param axarr: an axis array (for x, y & z)
+                  e.g. from 'fig, axarr = plt.subplots(3)'
+    :param traj: trajectory.PosePath3D or trajectory.PoseTrajectory3D object
+    :param style: matplotlib line style
+    :param color: matplotlib color
+    :param label: label (for legend)
+    :param alpha: alpha value for transparency
+    :param start_timestamp: optional start time of the reference
+                            (for x-axis alignment)
+    """
+    from scipy.interpolate import interp1d
+    
+    if len(axarr) != 3:
+        raise PlotException("expected an axis array with 3 subplots - got " +
+                            str(len(axarr)))
+    if isinstance(traj, trajectory.PoseTrajectory3D):
+        if start_timestamp:
+            x = mytraj.timestamps - start_timestamp
+        else:
+            x = mytraj.timestamps
+        xlabel = "$t$ (s)"
+    else:
+        x = np.arange(0., len(mytraj.positions_xyz))
+        xlabel = "index"
+    ylabels = ["$x-error$ (m)", "$y-error$ (m)", "$z-error$ (m)"]
+
+    # 确定插值区间    
+    if traj.timestamps[0] <= mytraj.timestamps[0]:
+        t_start = traj.timestamps[0]
+    else:
+        t_start = mytraj.timestamps[0]
+    
+    if traj.timestamps[-1] <= mytraj.timestamps[-1]:
+        t_end = traj.timestamps[-1]
+    else:
+        t_end = mytraj.timestamps[-1]
+
+    # 对GT进行三次样条插值
+    interp_func_x = interp1d(traj.timestamps, traj.positions_xyz[:, 0], kind='cubic')
+    interp_func_y = interp1d(traj.timestamps, traj.positions_xyz[:, 1], kind='cubic')
+    interp_func_z = interp1d(traj.timestamps, traj.positions_xyz[:, 2], kind='cubic')
+
+    
+    # 修改误差曲线的起止范围
+    cnt_start = 0
+    cnt_end = len(x)-1
+    while x[cnt_start] < t_start:
+        cnt_start = cnt_start + 1
+    while x[cnt_end] > t_end:
+        cnt_end = cnt_end - 1
+
+    interp_x = interp_func_x(x[cnt_start:cnt_end])
+    interp_y = interp_func_y(x[cnt_start:cnt_end])
+    interp_z = interp_func_z(x[cnt_start:cnt_end])
+
+    axarr[0].plot(x[cnt_start:cnt_end], np.abs(mytraj.positions_xyz[cnt_start:cnt_end, 0] - interp_x), style, color=color, label=label, alpha=alpha)
+    axarr[1].plot(x[cnt_start:cnt_end], np.abs(mytraj.positions_xyz[cnt_start:cnt_end, 1] - interp_y), style, color=color, label=label, alpha=alpha)
+    axarr[2].plot(x[cnt_start:cnt_end], np.abs(mytraj.positions_xyz[cnt_start:cnt_end, 2] - interp_z), style, color=color, label=label, alpha=alpha)
+    axarr[0].set_ylabel(ylabels[0])
+    axarr[1].set_ylabel(ylabels[1])
+    axarr[2].set_ylabel(ylabels[2])
+    
+    axarr[2].set_xlabel(xlabel)
+    if label:
+        axarr[0].legend(frameon=True)
+
+# 新增绘制rpy绝对值误差的函数
+def traj_rpy_abs_e(axarr: np.ndarray, traj: trajectory.PosePath3D, mytraj: trajectory.PosePath3D, style: str = '-',
+             color: str = 'black', label: str = "", alpha: float = 1.0,
+             start_timestamp: typing.Optional[float] = None) -> None:
+    """
+    plot a error path/trajectory's Euler RPY angles into an axis
+    :param axarr: an axis array (for R, P & Y)
+                  e.g. from 'fig, axarr = plt.subplots(3)'
+    :param traj: trajectory.PosePath3D or trajectory.PoseTrajectory3D object
+    :param style: matplotlib line style
+    :param color: matplotlib color
+    :param label: label (for legend)
+    :param alpha: alpha value for transparency
+    :param start_timestamp: optional start time of the reference
+                            (for x-axis alignment)
+    """
+    from scipy.interpolate import interp1d
+    
+    if len(axarr) != 3:
+        raise PlotException("expected an axis array with 3 subplots - got " +
+                            str(len(axarr)))
+    angles = np.rad2deg(traj.get_orientations_euler(SETTINGS.euler_angle_sequence))
+    my_angles = np.rad2deg(mytraj.get_orientations_euler(SETTINGS.euler_angle_sequence))
+    if isinstance(traj, trajectory.PoseTrajectory3D):
+        if start_timestamp:
+            x = mytraj.timestamps - start_timestamp
+        else:
+            x = mytraj.timestamps
+        xlabel = "$t$ (s)"
+    else:
+        x = np.arange(0., len(angles))
+        xlabel = "index"
+    ylabels = ["$roll-error$ (deg)", "$pitch-error$ (deg)", "$yaw-error$ (deg)"]
+    
+    
+    # 确定插值区间    
+    if traj.timestamps[0] <= mytraj.timestamps[0]:
+        t_start = traj.timestamps[0]
+    else:
+        t_start = mytraj.timestamps[0]
+    
+    if traj.timestamps[-1] <= mytraj.timestamps[-1]:
+        t_end = traj.timestamps[-1]
+    else:
+        t_end = mytraj.timestamps[-1]
+
+    # 对GT进行三次样条插值
+    interp_func_roll = interp1d(traj.timestamps, angles[:, 0], kind='cubic')
+    interp_func_pitch = interp1d(traj.timestamps, angles[:, 1], kind='cubic')
+    interp_func_yaw = interp1d(traj.timestamps, angles[:, 2], kind='cubic')
+
+    
+    # 修改误差曲线的起止范围
+    cnt_start = 0
+    cnt_end = len(x)-1
+    while x[cnt_start] < t_start:
+        cnt_start = cnt_start + 1
+    while x[cnt_end] > t_end:
+        cnt_end = cnt_end - 1
+
+    interp_roll = interp_func_roll(x[cnt_start:cnt_end])
+    interp_pitch = interp_func_pitch(x[cnt_start:cnt_end])
+    interp_yaw = interp_func_yaw(x[cnt_start:cnt_end])
+    
+    axarr[0].plot(x[cnt_start:cnt_end], np.abs(my_angles[cnt_start:cnt_end, 0] - interp_roll), style, color=color, label=label, alpha=alpha)
+    axarr[1].plot(x[cnt_start:cnt_end], np.abs(my_angles[cnt_start:cnt_end, 1] - interp_pitch), style, color=color, label=label, alpha=alpha)
+    axarr[2].plot(x[cnt_start:cnt_end], np.abs(my_angles[cnt_start:cnt_end, 2] - interp_yaw), style, color=color, label=label, alpha=alpha)
+    axarr[0].set_ylabel(ylabels[0])
+    axarr[1].set_ylabel(ylabels[1])
+    axarr[2].set_ylabel(ylabels[2])    
+
+    axarr[2].set_xlabel(xlabel)
+    if label:
+        axarr[0].legend(frameon=True)
+
 
 def trajectories(fig: plt.Figure, trajectories: typing.Union[
         trajectory.PosePath3D, typing.Sequence[trajectory.PosePath3D],
         typing.Dict[str, trajectory.PosePath3D]], plot_mode=PlotMode.xy,
                  title: str = "", subplot_arg: int = 111,
-                 plot_start_end_markers: bool = False,
-                 length_unit: Unit = Unit.meters) -> None:
+                 plot_start_end_markers: bool = False) -> None:
     """
     high-level function for plotting multiple trajectories
     :param fig: matplotlib figure
@@ -644,10 +934,8 @@ def trajectories(fig: plt.Figure, trajectories: typing.Union[
     :param subplot_arg: optional matplotlib subplot ID if used as subplot
     :param plot_start_end_markers: Mark the start and end of a trajectory
                                    with a symbol.
-    :param length_unit: Set to another length unit than meters to scale plots.
-                        Note that trajectory data is still expected in meters.
     """
-    ax = prepare_axis(fig, plot_mode, subplot_arg, length_unit)
+    ax = prepare_axis(fig, plot_mode, subplot_arg)
     if title:
         ax.set_title(title)
 
